@@ -3,6 +3,7 @@ services:
     name: udaan-backend
     runtime: python
     plan: free
+    pythonVersion: "3.11"
     buildCommand: |
       cd "Udaan2/Student_helper_2 3/Backend/app" && pip install -r ../requirements.txt
     startCommand: |
