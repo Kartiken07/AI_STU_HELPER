@@ -4,11 +4,9 @@ services:
     runtime: python
     plan: free
     buildCommand: |
-      cd Backend/app
-      pip install -r ../requirements.txt
+      cd "Udaan2/Student_helper_2 3/Backend/app" && pip install -r ../requirements.txt
     startCommand: |
-      cd Backend/app
-      uvicorn app:app --host 0.0.0.0 --port $PORT
+      cd "Udaan2/Student_helper_2 3/Backend/app" && uvicorn app:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
