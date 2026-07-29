@@ -3,22 +3,12 @@ import uuid
 import io
 
 CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 TOP_K = 5
 
 _collection = None
-_embeddings = None
 _splitter = None
-
-
-def _get_embeddings():
-    global _embeddings
-    if _embeddings is None:
-        from langchain_huggingface import HuggingFaceEmbeddings
-        _embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
-    return _embeddings
 
 
 def _get_collection():

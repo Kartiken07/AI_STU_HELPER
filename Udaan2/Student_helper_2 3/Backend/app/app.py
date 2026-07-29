@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from Chatschema import Userinput,ChatRequest,Scores,Login,UserCreate,CareerNodeCreate,CareerNodeUpdate
 from rag import store_document, query_documents, list_documents, delete_document
 from datetime import datetime
-import numpy as np
 import models_database
 import time
 import bcrypt
