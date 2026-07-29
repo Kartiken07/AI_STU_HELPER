@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: udaan-backend
+    runtime: python
+    plan: free
+    buildCommand: |
+      cd Backend/app
+      pip install -r ../requirements.txt
+    startCommand: |
+      cd Backend/app
+      uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: FRONTEND_URL
+        sync: false
+      - key: HF_API_KEY
+        sync: false
+      - key: HUGGINGFACEHUB_API_TOKEN
+        sync: false
+      - key: LANGCHAIN_TRACING_V2
+        value: "true"
+      - key: LANGCHAIN_ENDPOINT
+        value: "https://api.smith.langchain.com"
+      - key: LANGCHAIN_API_KEY
+        sync: false
+      - key: LANGCHAIN_PROJECT
+        value: "Chat_bot_usage"

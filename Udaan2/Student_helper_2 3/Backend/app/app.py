@@ -8,6 +8,7 @@ import numpy as np
 import models_database
 import time
 import bcrypt
+import os
 from loadmodel import model
 from sqlalchemy.orm import Session
 from Database import Base,engine,sessionlocal
@@ -25,9 +26,16 @@ def get_db():
 
 app=FastAPI()
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    FRONTEND_URL,
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
