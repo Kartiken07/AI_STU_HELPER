@@ -1,7 +1,6 @@
 from fastapi import FastAPI,UploadFile,File,Form,HTTPException,Depends
 from fastapi.middleware.cors import CORSMiddleware
 from Chatschema import Userinput,ChatRequest,Scores,Login,UserCreate,CareerNodeCreate,CareerNodeUpdate
-from model import workflow,chain,chain1
 from rag import store_document, query_documents, list_documents, delete_document
 from datetime import datetime
 import numpy as np
@@ -9,7 +8,6 @@ import models_database
 import time
 import bcrypt
 import os
-from loadmodel import model
 from sqlalchemy.orm import Session
 from Database import Base,engine,sessionlocal
 from auth import create_access_token, get_current_user
@@ -44,6 +42,7 @@ app.add_middleware(
 
 @app.post('/chat')
 def chat(user:ChatRequest, db:Session=Depends(get_db), current_user: models_database.User = Depends(get_current_user)):
+    from model import get_workflow
     text={
         'messages':f"Your personal guide for career development and educational planning answer based on that the query this use less emojies okay{user.text}"
     }
@@ -53,7 +52,7 @@ def chat(user:ChatRequest, db:Session=Depends(get_db), current_user: models_data
         "metadata": {"thread_id": thread_id},
         "run_name": "chat_turn",
     }
-    response=workflow.invoke(text,config=CONFIG)
+    response=get_workflow().invoke(text,config=CONFIG)
     messages = response["messages"] if isinstance(response, dict) else response.messages
 
     bot_reply = messages[-1].content if messages else "Sorry, I didn't catch that."
@@ -102,6 +101,8 @@ def chat_history(limit:int=50, db:Session=Depends(get_db), current_user: models_
 
 @app.post('/submit-quiz')
 def stream_pre(score:Scores, current_user: models_database.User = Depends(get_current_user)):
+    from loadmodel import model
+    from model import get_chain
     features=[[
         score.aptitude_score,
         score.science_score,
@@ -124,7 +125,7 @@ def stream_pre(score:Scores, current_user: models_database.User = Depends(get_cu
         stream="Arts"
     else:
         stream="Vocational"
-    result=chain.invoke({'txt':stream})
+    result=get_chain().invoke({'txt':stream})
     return {"predicted_stream":result}
 
 @app.post('/login')
@@ -269,6 +270,7 @@ def rag_chat(
     req: RAGChatRequest,
     current_user: models_database.User = Depends(get_current_user),
 ):
+    from model import get_chain1
     docs = query_documents(req.text)
     if not docs:
         return {
@@ -288,7 +290,7 @@ def rag_chat(
         f"Answer:"
     )
 
-    result = chain1.invoke({"ques": prompt_text, "context": ""})
+    result = get_chain1().invoke({"ques": prompt_text, "context": ""})
 
     return {
         "text": result,
