@@ -2,6 +2,7 @@ from fastapi import FastAPI,UploadFile,File,Form,HTTPException,Depends
 from fastapi.middleware.cors import CORSMiddleware
 from Chatschema import Userinput,ChatRequest,Scores,Login,UserCreate,CareerNodeCreate,CareerNodeUpdate
 from model import workflow,chain,chain1
+from rag import store_document, query_documents, list_documents, delete_document
 from datetime import datetime
 import numpy as np
 import models_database
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from Database import Base,engine,sessionlocal
 from auth import create_access_token, get_current_user
 from typing import List
+from pydantic import BaseModel
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -232,3 +234,69 @@ def delete_career_node(node_id: str, db: Session = Depends(get_db), current_user
     db.delete(node)
     db.commit()
     return {"ok": True}
+
+
+class RAGChatRequest(BaseModel):
+    text: str
+    doc_id: str | None = None
+
+
+@app.post('/rag/upload')
+async def rag_upload(
+    file: UploadFile = File(...),
+    current_user: models_database.User = Depends(get_current_user),
+):
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        result = store_document(file.filename, content, file.content_type or "application/pdf")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+@app.post('/rag/chat')
+def rag_chat(
+    req: RAGChatRequest,
+    current_user: models_database.User = Depends(get_current_user),
+):
+    docs = query_documents(req.text)
+    if not docs:
+        return {
+            "text": "No relevant documents found. Please upload a document first.",
+            "sources": [],
+        }
+
+    context = "\n\n".join([d["text"] for d in docs])
+    source_names = list(set([d["doc_name"] for d in docs]))
+
+    prompt_text = (
+        f"Answer the following question based on the provided context.\n"
+        f"If the answer is not in the context, say 'I don't have enough information to answer that.'\n"
+        f"Do not use emojis.\n\n"
+        f"Context:\n{context}\n\n"
+        f"Question: {req.text}\n\n"
+        f"Answer:"
+    )
+
+    result = chain1.invoke({"ques": prompt_text, "context": ""})
+
+    return {
+        "text": result,
+        "sources": source_names,
+        "chunks_used": len(docs),
+    }
+
+
+@app.get('/rag/documents')
+def rag_documents(current_user: models_database.User = Depends(get_current_user)):
+    return {"documents": list_documents()}
+
+
+@app.delete('/rag/documents/{doc_id}')
+def rag_delete_document(doc_id: str, current_user: models_database.User = Depends(get_current_user)):
+    deleted = delete_document(doc_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"ok": True, "doc_id": doc_id}

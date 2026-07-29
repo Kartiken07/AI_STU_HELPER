@@ -1,4 +1,4 @@
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE = 'http://127.0.0.1:8001';
 
 export const API = {
   BASE: API_BASE,
@@ -11,6 +11,10 @@ export const API = {
   ME: `${API_BASE}/me`,
   CAREER_TREE: `${API_BASE}/career-tree`,
   ADMIN_CAREER_NODES: `${API_BASE}/admin/career-nodes`,
+  RAG_UPLOAD: `${API_BASE}/rag/upload`,
+  RAG_CHAT: `${API_BASE}/rag/chat`,
+  RAG_DOCUMENTS: `${API_BASE}/rag/documents`,
+  RAG_DELETE_DOC: (docId: string) => `${API_BASE}/rag/documents/${docId}`,
 };
 
 function getToken(): string | null {
@@ -43,10 +47,21 @@ export async function apiPost<T>(url: string, body: unknown): Promise<T> {
 }
 
 export async function apiPostFormData<T>(url: string, formData: FormData): Promise<T> {
+  const h: Record<string, string> = {};
+  const token = getToken();
+  if (token) h['Authorization'] = `Bearer ${token}`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: headers(false),
+    headers: h,
     body: formData,
+  });
+  return handleResponse<T>(res);
+}
+
+export async function apiDelete<T>(url: string): Promise<T> {
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: headers(false),
   });
   return handleResponse<T>(res);
 }

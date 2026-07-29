@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Send, Paperclip } from 'lucide-react';
-import { API } from '../api/config';
+import { Upload, X, Send, Paperclip, FileText, Trash2 } from 'lucide-react';
+import { API, apiPost, apiGet, apiDelete, apiPostFormData } from '../api/config';
 
 interface Message {
   id: number;
@@ -8,14 +8,20 @@ interface Message {
   isUser: boolean;
   timestamp: Date;
   fileName?: string;
-  fileType?: string;
+  sources?: string[];
+}
+
+interface Document {
+  doc_id: string;
+  doc_name: string;
+  total_chunks: number;
 }
 
 const ChatBotWithFileUpload: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
-      text: "Hello! I'm your AI assistant. You can send me text messages or upload files along with your questions. How can I help you today?",
+      text: "Hello! Upload a PDF or text file, then ask me anything about it. I'll answer based on the document content.",
       isUser: false,
       timestamp: new Date()
     }
@@ -23,10 +29,26 @@ const ChatBotWithFileUpload: React.FC = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [showDocs, setShowDocs] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchDocuments = async () => {
+    try {
+      const data = await apiGet<{ documents: Document[] }>(API.RAG_DOCUMENTS);
+      setDocuments(data.documents || []);
+    } catch (e) {
+      console.error('Failed to fetch documents:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -36,78 +58,108 @@ const ChatBotWithFileUpload: React.FC = () => {
     inputRef.current?.focus();
   }, []);
 
-  const sendMessageToAPI = async (message: string, file?: File): Promise<string> => {
+  const uploadFile = async (file: File): Promise<boolean> => {
+    setIsUploading(true);
     try {
       const formData = new FormData();
-      formData.append('text', message);
-      
-      if (file) {
-        formData.append('file', file);
-      }
+      formData.append('file', file);
+      await apiPostFormData(API.RAG_UPLOAD, formData);
+      await fetchDocuments();
+      return true;
+    } catch (e: any) {
+      console.error('Upload error:', e);
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        text: `Failed to upload "${file.name}": ${e.message || 'Unknown error'}`,
+        isUser: false,
+        timestamp: new Date()
+      }]);
+      return false;
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
-      const response = await fetch(API.CHECK_COLLEGE, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.text || 'Sorry, I could not process your request at the moment.';
+  const sendMessageToAPI = async (message: string): Promise<{ text: string; sources: string[] }> => {
+    try {
+      const data = await apiPost<{ text: string; sources: string[] }>(API.RAG_CHAT, { text: message });
+      return { text: data.text || 'Sorry, I could not process your request.', sources: data.sources || [] };
     } catch (error) {
       console.error('API Error:', error);
-      return 'Sorry, I\'m having trouble connecting to the server. Please try again later.';
+      return { text: 'Sorry, I\'m having trouble connecting to the server. Please try again later.', sources: [] };
     }
   };
 
   const handleSendMessage = async () => {
     if ((!inputMessage.trim() && !selectedFile) || isLoading) return;
 
-    const messageText = inputMessage.trim() || (selectedFile ? 'File uploaded' : '');
-    
-    const userMessage: Message = {
-      id: Date.now(),
-      text: messageText,
-      isUser: true,
-      timestamp: new Date(),
-      fileName: selectedFile?.name,
-      fileType: selectedFile?.type
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    const currentMessage = inputMessage.trim();
     const currentFile = selectedFile;
-    
+    const currentMessage = inputMessage.trim();
+
     setInputMessage('');
     setSelectedFile(null);
     setIsLoading(true);
 
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const botResponse = await sendMessageToAPI(currentMessage, currentFile || undefined);
-      
-      const botMessage: Message = {
-        id: Date.now() + 1,
-        text: botResponse,
-        isUser: false,
-        timestamp: new Date()
-      };
+    if (currentFile) {
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        text: `Uploading "${currentFile.name}"...`,
+        isUser: true,
+        timestamp: new Date(),
+        fileName: currentFile.name
+      }]);
 
-      setMessages(prev => [...prev, botMessage]);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      const errorMessage: Message = {
+      const uploaded = await uploadFile(currentFile);
+      if (!uploaded) {
+        setIsLoading(false);
+        return;
+      }
+
+      setMessages(prev => [...prev, {
         id: Date.now() + 1,
-        text: 'Sorry, there was an error processing your message. Please try again.',
+        text: `"${currentFile.name}" uploaded and indexed successfully! You can now ask questions about it.`,
         isUser: false,
         timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
+      }]);
+
+      if (!currentMessage) {
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    setMessages(prev => [...prev, {
+      id: Date.now(),
+      text: currentMessage,
+      isUser: true,
+      timestamp: new Date()
+    }]);
+
+    const response = await sendMessageToAPI(currentMessage);
+
+    setMessages(prev => [...prev, {
+      id: Date.now() + 1,
+      text: response.text,
+      isUser: false,
+      timestamp: new Date(),
+      sources: response.sources.length > 0 ? response.sources : undefined
+    }]);
+
+    setIsLoading(false);
+  };
+
+  const handleDeleteDoc = async (docId: string, docName: string) => {
+    try {
+      await apiDelete(API.RAG_DELETE_DOC(docId));
+      await fetchDocuments();
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        text: `Deleted document "${docName}" from knowledge base.`,
+        isUser: false,
+        timestamp: new Date()
+      }]);
+    } catch (e: any) {
+      console.error('Delete error:', e);
     }
   };
 
@@ -124,19 +176,14 @@ const ChatBotWithFileUpload: React.FC = () => {
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      handleFileSelect(file);
-    }
+    if (file) handleFileSelect(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
-    
     const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      handleFileSelect(files[0]);
-    }
+    if (files.length > 0) handleFileSelect(files[0]);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -149,16 +196,8 @@ const ChatBotWithFileUpload: React.FC = () => {
     setDragActive(false);
   };
 
-  const removeSelectedFile = () => {
-    setSelectedFile(null);
-  };
-
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: true 
-    });
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
   const formatFileSize = (bytes: number) => {
@@ -169,15 +208,6 @@ const ChatBotWithFileUpload: React.FC = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getFileIcon = (fileType?: string) => {
-    if (!fileType) return '📄';
-    if (fileType.startsWith('image/')) return '🖼️';
-    if (fileType.startsWith('video/')) return '🎥';
-    if (fileType.startsWith('audio/')) return '🎵';
-    if (fileType.includes('pdf')) return '📕';
-    return '📎';
-  };
-
   return (
     <div style={{
       minHeight: '100vh',
@@ -186,70 +216,132 @@ const ChatBotWithFileUpload: React.FC = () => {
       fontFamily: 'system-ui, sans-serif',
       paddingTop: '20px'
     }}>
-      
       {/* Header */}
       <div style={{
         background: 'rgba(31, 41, 59, 0.8)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         padding: '24px',
-        marginTop:'5vh'
+        marginTop: '5vh'
       }}>
-        <div style={{
-          maxWidth: '1024px',
-          margin: '0 auto',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px'
-        }}>
-          <div style={{
-            background: 'linear-gradient(45deg, #3b82f6, #8b5cf6)',
-            padding: '12px',
-            borderRadius: '50%',
-            animation: 'pulse 2s infinite'
-          }}>
-            🤖
-          </div>
-          <div>
-            <h1 style={{
-              fontSize: '28px',
-              fontWeight: 'bold',
-              background: 'linear-gradient(90deg, #60a5fa, #a855f7)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              margin: ''
+        <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{
+              background: 'linear-gradient(45deg, #3b82f6, #8b5cf6)',
+              padding: '12px',
+              borderRadius: '50%',
+              animation: 'pulse 2s infinite'
             }}>
-              AI ChatBot with File Upload
-            </h1>
-            <p style={{
-              color: '#9ca3af',
-              marginTop: '8px',
-              margin: '8px 0 0 0'
-            }}>
-              Send messages and upload files to get AI assistance
-            </p>
+              <FileText size={24} color="white" />
+            </div>
+            <div>
+              <h1 style={{
+                fontSize: '28px',
+                fontWeight: 'bold',
+                background: 'linear-gradient(90deg, #60a5fa, #a855f7)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                margin: 0
+              }}>
+                RAG Document Chat
+              </h1>
+              <p style={{ color: '#9ca3af', margin: '4px 0 0 0' }}>
+                Upload documents, then ask questions about their content
+              </p>
+            </div>
           </div>
+          <button
+            onClick={() => setShowDocs(!showDocs)}
+            style={{
+              padding: '10px 16px',
+              background: showDocs ? 'rgba(59, 130, 246, 0.3)' : 'rgba(55, 65, 81, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '10px',
+              color: 'white',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '14px'
+            }}
+          >
+            <FileText size={16} />
+            Documents ({documents.length})
+          </button>
         </div>
       </div>
 
-      {/* Chat Container */}
-      <div style={{
-        maxWidth: '1024px',
-        margin: '0 auto',
-          paddingTop:'5vh',
-        height: '100vh',
-        display: 'flex',
-        flexDirection: 'column'
-      }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', gap: '16px', padding: '16px', height: '75vh' }}>
+        {/* Documents Panel */}
+        {showDocs && (
+          <div style={{
+            width: '280px',
+            flexShrink: 0,
+            background: 'rgba(31, 41, 59, 0.8)',
+            borderRadius: '16px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            padding: '16px',
+            overflowY: 'auto'
+          }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#d1d5db' }}>
+              Uploaded Documents
+            </h3>
+            {documents.length === 0 ? (
+              <p style={{ color: '#6b7280', fontSize: '13px', textAlign: 'center', padding: '20px 0' }}>
+                No documents uploaded yet. Drop a file below to get started.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {documents.map(doc => (
+                  <div key={doc.doc_id} style={{
+                    padding: '10px 12px',
+                    background: 'rgba(55, 65, 81, 0.6)',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ margin: 0, fontSize: '13px', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {doc.doc_name}
+                      </p>
+                      <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#6b7280' }}>
+                        {doc.total_chunks} chunks
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteDoc(doc.doc_id, doc.doc_name)}
+                      style={{
+                        padding: '4px',
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#6b7280',
+                        cursor: 'pointer',
+                        borderRadius: '4px',
+                        flexShrink: 0
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                      onMouseLeave={e => e.currentTarget.style.color = '#6b7280'}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Chat Container */}
         <div style={{
           flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
           background: 'rgba(31, 41, 59, 0.6)',
           borderRadius: '20px',
           border: '1px solid rgba(255, 255, 255, 0.1)',
-          display: 'flex',
-          flexDirection: 'column',
           overflow: 'hidden'
         }}>
-          
           {/* Messages Area */}
           <div style={{
             flex: 1,
@@ -266,7 +358,7 @@ const ChatBotWithFileUpload: React.FC = () => {
                 animation: `fadeInUp 0.5s ease ${index * 0.1}s both`
               }}>
                 <div style={{
-                  maxWidth: '70%',
+                  maxWidth: '75%',
                   display: 'flex',
                   alignItems: 'flex-end',
                   gap: '12px',
@@ -276,31 +368,29 @@ const ChatBotWithFileUpload: React.FC = () => {
                     width: '36px',
                     height: '36px',
                     borderRadius: '50%',
-                    background: message.isUser 
-                      ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)' 
+                    background: message.isUser
+                      ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)'
                       : 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '18px'
+                    fontSize: '18px',
+                    flexShrink: 0
                   }}>
                     {message.isUser ? '👤' : '🤖'}
                   </div>
-                  
-                  <div style={{ flex: 1 }}>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{
                       borderRadius: '18px',
                       borderBottomRightRadius: message.isUser ? '6px' : '18px',
                       borderBottomLeftRadius: message.isUser ? '18px' : '6px',
                       padding: '12px 16px',
-                      background: message.isUser 
+                      background: message.isUser
                         ? 'rgba(59, 130, 246, 0.2)'
                         : 'rgba(55, 65, 81, 0.8)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      transition: 'transform 0.2s ease'
+                      border: '1px solid rgba(255, 255, 255, 0.1)'
                     }}>
-                      
-                      {/* File Info */}
                       {message.fileName && (
                         <div style={{
                           marginBottom: '8px',
@@ -311,26 +401,33 @@ const ChatBotWithFileUpload: React.FC = () => {
                           alignItems: 'center',
                           gap: '8px'
                         }}>
-                          <span style={{ fontSize: '20px' }}>{getFileIcon(message.fileType)}</span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{
-                              fontWeight: '500',
-                              margin: 0,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}>{message.fileName}</p>
-                          </div>
+                          <FileText size={16} color="#60a5fa" />
+                          <span style={{ fontSize: '13px', color: '#d1d5db' }}>{message.fileName}</span>
                         </div>
                       )}
-                      
-                      <p style={{
-                        fontSize: '14px',
-                        lineHeight: '1.6',
-                        margin: 0
-                      }}>{message.text}</p>
+
+                      <p style={{ fontSize: '14px', lineHeight: '1.6', margin: 0, whiteSpace: 'pre-wrap' }}>
+                        {message.text}
+                      </p>
+
+                      {message.sources && message.sources.length > 0 && (
+                        <div style={{
+                          marginTop: '10px',
+                          padding: '8px 10px',
+                          background: 'rgba(139, 92, 246, 0.1)',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(139, 92, 246, 0.2)'
+                        }}>
+                          <p style={{ margin: 0, fontSize: '11px', color: '#a78bfa', fontWeight: '600' }}>
+                            Sources:
+                          </p>
+                          <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                            {message.sources.join(', ')}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    
+
                     <p style={{
                       fontSize: '12px',
                       color: '#6b7280',
@@ -346,76 +443,33 @@ const ChatBotWithFileUpload: React.FC = () => {
 
             {/* Loading Message */}
             {isLoading && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'flex-start'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  gap: '12px'
-                }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
                   <div style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '50%',
+                    width: '36px', height: '36px', borderRadius: '50%',
                     background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '18px',
-                    animation: 'pulse 2s infinite'
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '18px', animation: 'pulse 2s infinite'
                   }}>
                     🤖
                   </div>
                   <div style={{
                     background: 'rgba(55, 65, 81, 0.8)',
                     border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '18px',
-                    borderBottomLeftRadius: '6px',
-                    padding: '12px 16px'
+                    borderRadius: '18px', borderBottomLeftRadius: '6px',
+                    padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '10px'
                   }}>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}>
-                      <div style={{
-                        display: 'flex',
-                        gap: '4px'
-                      }}>
-                        <div style={{
-                          width: '8px',
-                          height: '8px',
-                          backgroundColor: '#8b5cf6',
-                          borderRadius: '50%',
-                          animation: 'bounce 1.4s infinite ease-in-out'
-                        }}></div>
-                        <div style={{
-                          width: '8px',
-                          height: '8px',
-                          backgroundColor: '#8b5cf6',
-                          borderRadius: '50%',
-                          animation: 'bounce 1.4s infinite ease-in-out 0.2s'
-                        }}></div>
-                        <div style={{
-                          width: '8px',
-                          height: '8px',
-                          backgroundColor: '#8b5cf6',
-                          borderRadius: '50%',
-                          animation: 'bounce 1.4s infinite ease-in-out 0.4s'
-                        }}></div>
-                      </div>
-                      <span style={{
-                        fontSize: '14px',
-                        color: '#d1d5db'
-                      }}>Processing...</span>
-                    </div>
+                    <div style={{ width: '10px', height: '10px', backgroundColor: '#8b5cf6', borderRadius: '50%', animation: 'typingBounce 1.4s infinite ease-in-out' }}></div>
+                    <div style={{ width: '10px', height: '10px', backgroundColor: '#8b5cf6', borderRadius: '50%', animation: 'typingBounce 1.4s infinite ease-in-out 0.2s' }}></div>
+                    <div style={{ width: '10px', height: '10px', backgroundColor: '#8b5cf6', borderRadius: '50%', animation: 'typingBounce 1.4s infinite ease-in-out 0.4s' }}></div>
+                    <span style={{ fontSize: '13px', color: '#8b5cf6', fontWeight: '500', marginLeft: '4px' }}>
+                      {isUploading ? 'Uploading...' : 'AI is thinking...'}
+                    </span>
                   </div>
                 </div>
               </div>
             )}
-            
+
             <div ref={messagesEndRef} />
           </div>
 
@@ -424,67 +478,24 @@ const ChatBotWithFileUpload: React.FC = () => {
             borderTop: '1px solid rgba(255, 255, 255, 0.1)',
             padding: '20px'
           }}>
-            
             {/* Selected File */}
             {selectedFile && (
               <div style={{
-                marginBottom: '16px',
-                padding: '12px',
-                background: 'rgba(55, 65, 81, 0.5)',
-                borderRadius: '12px',
+                marginBottom: '16px', padding: '12px',
+                background: 'rgba(55, 65, 81, 0.5)', borderRadius: '12px',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
-                animation: 'slideDown 0.3s ease-out'
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between'
               }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}>
-                    <span style={{ fontSize: '24px' }}>{getFileIcon(selectedFile.type)}</span>
-                    <div>
-                      <p style={{
-                        fontWeight: '500',
-                        color: 'white',
-                        margin: 0,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}>{selectedFile.name}</p>
-                      <p style={{
-                        fontSize: '12px',
-                        color: '#9ca3af',
-                        margin: 0
-                      }}>{formatFileSize(selectedFile.size)}</p>
-                    </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <FileText size={24} color="#60a5fa" />
+                  <div>
+                    <p style={{ fontWeight: '500', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFile.name}</p>
+                    <p style={{ fontSize: '12px', color: '#9ca3af', margin: 0 }}>{formatFileSize(selectedFile.size)}</p>
                   </div>
-                  <button
-                    onClick={removeSelectedFile}
-                    style={{
-                      padding: '8px',
-                      color: '#9ca3af',
-                      cursor: 'pointer',
-                      backgroundColor: 'transparent',
-                      border: 'none',
-                      borderRadius: '6px',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = '#ef4444';
-                      e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = '#9ca3af';
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }}
-                  >
-                    <X size={16} />
-                  </button>
                 </div>
+                <button onClick={() => setSelectedFile(null)} style={{ padding: '8px', color: '#9ca3af', cursor: 'pointer', backgroundColor: 'transparent', border: 'none', borderRadius: '6px' }}>
+                  <X size={16} />
+                </button>
               </div>
             )}
 
@@ -493,9 +504,7 @@ const ChatBotWithFileUpload: React.FC = () => {
               style={{
                 marginBottom: '16px',
                 border: dragActive ? '2px dashed #60a5fa' : '2px dashed #4b5563',
-                borderRadius: '12px',
-                padding: '20px',
-                textAlign: 'center',
+                borderRadius: '12px', padding: '16px', textAlign: 'center',
                 transition: 'all 0.3s ease',
                 background: dragActive ? 'rgba(59, 130, 246, 0.05)' : 'transparent'
               }}
@@ -503,147 +512,63 @@ const ChatBotWithFileUpload: React.FC = () => {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
             >
-              <Upload 
-                size={24} 
-                style={{
-                  margin: '0 auto 8px auto',
-                  color: dragActive ? '#60a5fa' : '#9ca3af',
-                  display: 'block'
-                }}
-              />
-              <p style={{
-                color: '#9ca3af',
-                marginBottom: '8px',
-                margin: '0 0 8px 0'
-              }}>
-                {dragActive ? 'Drop your file here' : 'Drag and drop a file here, or'}
+              <Upload size={20} style={{ margin: '0 auto 6px auto', color: dragActive ? '#60a5fa' : '#9ca3af', display: 'block' }} />
+              <p style={{ color: '#9ca3af', margin: '0 0 6px 0', fontSize: '13px' }}>
+                {dragActive ? 'Drop your file here' : 'Drag & drop a PDF/TXT file'}
               </p>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                style={{
-                  color: '#60a5fa',
-                  textDecoration: 'underline',
-                  cursor: 'pointer',
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  fontSize: 'inherit',
-                  fontFamily: 'inherit'
-                }}
+                style={{ color: '#60a5fa', textDecoration: 'underline', cursor: 'pointer', backgroundColor: 'transparent', border: 'none', fontSize: '12px', fontFamily: 'inherit' }}
               >
-                browse to upload
+                or browse to upload
               </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={handleFileInputChange}
-                style={{ display: 'none' }}
-                accept="*/*"
-              />
+              <input ref={fileInputRef} type="file" onChange={handleFileInputChange} style={{ display: 'none' }} accept=".pdf,.txt,.text" />
             </div>
 
             {/* Input Row */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'flex-end',
-              gap: '12px'
-            }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
               <div style={{ flex: 1 }}>
                 <textarea
                   ref={inputRef}
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="Type your message here..."
+                  placeholder="Ask a question about your document..."
                   style={{
-                    width: '85%',
-                    padding: '12px 16px',
+                    width: '100%', padding: '12px 16px',
                     background: 'rgba(55, 65, 81, 0.5)',
                     border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '12px',
-                    color: 'white',
-                    fontSize: '16px',
-                    fontFamily: 'inherit',
-                    resize: 'none',
-                    outline: 'none',
-                    transition: 'border-color 0.2s ease'
+                    borderRadius: '12px', color: 'white', fontSize: '14px',
+                    fontFamily: 'inherit', resize: 'none', outline: 'none',
+                    boxSizing: 'border-box'
                   }}
-                  rows={3}
+                  rows={2}
                   disabled={isLoading}
-                  onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#3b82f6';
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                  }}
+                  onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
                 />
               </div>
-              
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  padding: '12px',
-                  background: 'rgba(55, 65, 81, 0.5)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '12px',
-                  color: 'white',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(75, 85, 99, 0.8)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(55, 65, 81, 0.5)';
-                }}
-              >
-                <Paperclip size={20} />
-              </button>
-              
+
               <button
                 onClick={handleSendMessage}
                 disabled={(!inputMessage.trim() && !selectedFile) || isLoading}
                 style={{
-                  padding: '12px 16px',
-                  borderRadius: '12px',
-                  border: 'none',
+                  padding: '12px 16px', borderRadius: '12px', border: 'none',
                   cursor: (!inputMessage.trim() && !selectedFile) || isLoading ? 'not-allowed' : 'pointer',
                   background: (!inputMessage.trim() && !selectedFile) || isLoading
                     ? 'rgba(75, 85, 99, 0.5)'
                     : 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
                   color: (!inputMessage.trim() && !selectedFile) || isLoading ? '#9ca3af' : 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.3s ease',
-                  transform: (!inputMessage.trim() && !selectedFile) || isLoading ? 'none' : 'translateY(0)'
-                }}
-                onMouseEnter={(e) => {
-                  if (!((!inputMessage.trim() && !selectedFile) || isLoading)) {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 8px 25px rgba(59, 130, 246, 0.4)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!((!inputMessage.trim() && !selectedFile) || isLoading)) {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.3s ease'
                 }}
               >
                 <Send size={20} />
               </button>
             </div>
 
-            <p style={{
-              fontSize: '12px',
-              color: '#6b7280',
-              marginTop: '8px',
-              textAlign: 'center'
-            }}>
-              Press Enter to send • Upload files up to your server limit
+            <p style={{ fontSize: '11px', color: '#6b7280', marginTop: '8px', textAlign: 'center' }}>
+              Upload PDF/TXT files to build knowledge base. Ask questions to get AI-powered answers.
             </p>
           </div>
         </div>
@@ -651,43 +576,16 @@ const ChatBotWithFileUpload: React.FC = () => {
 
       <style>{`
         @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-
-        @keyframes slideDown {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+        @keyframes typingBounce {
+          0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+          30% { transform: translateY(-10px); opacity: 1; }
         }
-
-        @keyframes bounce {
-          0%, 80%, 100% {
-            transform: scale(0);
-          } 
-          40% {
-            transform: scale(1);
-          }
-        }
-
         @keyframes pulse {
-          0%, 100% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.5;
-          }
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
         }
       `}</style>
     </div>

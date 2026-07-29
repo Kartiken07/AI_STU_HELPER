@@ -6,3 +6,11 @@
 __pycache__/
 node_modules/
 
+# Database files
+*.db
+*.db-shm
+*.db-wal
+**/users_db
+**/chroma_db/
+**/venv/
+

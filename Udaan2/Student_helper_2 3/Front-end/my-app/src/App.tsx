@@ -56,6 +56,7 @@ function AppContent() {
         <Route path="/home" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
         <Route path="/quiz" element={<ProtectedRoute><QuizPage /></ProtectedRoute>} />
         <Route path="/chat" element={<ProtectedRoute><StudentCareerHelper /></ProtectedRoute>} />
+        <Route path="/pdf" element={<ProtectedRoute><ChatBotWithFileUpload /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><StudentDashboard /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
 

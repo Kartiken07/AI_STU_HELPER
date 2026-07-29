@@ -634,33 +634,26 @@ const ChatBot: React.FC = () => {
     animation: 'pulse 2s infinite'
   };
 
-  const loadingContainerStyles: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '8px 0'
-  };
-
   const loadingDotStyles: React.CSSProperties = {
     width: '10px',
     height: '10px',
     backgroundColor: '#8b5cf6',
     borderRadius: '50%',
     display: 'inline-block',
-    margin: '0 3px',
+    margin: '0 4px',
     animation: 'typingBounce 1.4s infinite ease-in-out'
   };
 
   const typingIndicatorStyles: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    padding: '12px 16px',
+    gap: '10px',
+    padding: '14px 20px',
     backgroundColor: '#1a1a1a',
     borderRadius: '20px',
     border: '1px solid #404040',
-    maxWidth: '120px',
-    margin: '8px 0'
+    margin: '8px 0',
+    width: 'fit-content'
   };
 
   const helperTextStyles: React.CSSProperties = {
@@ -779,12 +772,10 @@ const ChatBot: React.FC = () => {
             <div style={avatarStyles(false)}>🤖</div>
             <div>
               <div style={typingIndicatorStyles}>
-                <div style={loadingContainerStyles}>
-                  <div style={loadingDotStyles}></div>
-                  <div style={{...loadingDotStyles, animationDelay: '0.2s'}}></div>
-                  <div style={{...loadingDotStyles, animationDelay: '0.4s'}}></div>
-                </div>
-                <span style={{ fontSize: '12px', color: '#8b5cf6', fontWeight: '500' }}>
+                <div style={{...loadingDotStyles}}></div>
+                <div style={{...loadingDotStyles, animationDelay: '0.2s'}}></div>
+                <div style={{...loadingDotStyles, animationDelay: '0.4s'}}></div>
+                <span style={{ fontSize: '13px', color: '#8b5cf6', fontWeight: '500', marginLeft: '4px' }}>
                   AI is thinking...
                 </span>
               </div>

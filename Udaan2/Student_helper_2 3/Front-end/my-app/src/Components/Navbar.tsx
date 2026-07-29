@@ -116,6 +116,7 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, isLoggedIn }) => {
   const navigationLinks: { name: string; path: string }[] = [
     { name: "Home", path: "/home" },
     { name: "Chat", path: "/chat" },
+    { name: "PDF Analyser", path: "/pdf" },
     { name: "Quiz", path: "/quiz" },
     { name: "Dashboard", path: "/dashboard" },
     { name: "Admin", path: "/admin" },
