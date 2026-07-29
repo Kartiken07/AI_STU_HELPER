@@ -369,7 +369,7 @@ const QuizPage: React.FC = () => {
   const [selectedAnswers, setSelectedAnswers] = useState<{ [questionId: string]: number }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [apiResponse, setApiResponse] = useState<string>('');
-  const [error, setError] = useState('');
+  const [, setError] = useState('');
 
   const estimateStreamFromScores = () => {
     const { science_score, commerce_score, arts_score, interest_science, interest_commerce, interest_arts } = scores;

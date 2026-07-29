@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 
 interface PrivateRouteProps {
   isLoggedIn: boolean;
-  children: JSX.Element;
+  children: React.JSX.Element;
 }
 
 const PrivateRoute: React.FC<PrivateRouteProps> = ({ isLoggedIn, children }) => {

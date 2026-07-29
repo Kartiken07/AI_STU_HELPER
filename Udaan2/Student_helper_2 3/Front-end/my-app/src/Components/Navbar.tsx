@@ -8,7 +8,7 @@ interface NavbarProps {
 
 const Navbar: React.FC<NavbarProps> = ({ onLogout, isLoggedIn }) => {
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
-  const [activeLink, setActiveLink] = useState<string>('Home');
+  const [, setActiveLink] = useState<string>('Home');
   const navigate = useNavigate();
 
   const navbarStyle: React.CSSProperties = {

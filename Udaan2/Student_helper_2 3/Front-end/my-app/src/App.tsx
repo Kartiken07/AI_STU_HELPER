@@ -5,7 +5,7 @@ import SignupPage from './Components/Signup_page';
 import QuizPage from './Components/Quiz_interface';
 import StudentCareerHelper from './Components/Chat_Bot_Interface';
 import ChatBotWithFileUpload from './Components/PDF_Reader_Rag';
-import CareerNetworkGraph from './Components/Chats';
+
 import StudentDashboard from './Components/Chartsinterface';
 import Navbar from './Components/Navbar';
 import HomePage from './Components/Homepage';

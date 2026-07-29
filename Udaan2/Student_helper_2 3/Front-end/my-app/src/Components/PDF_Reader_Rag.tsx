@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Send, Paperclip, FileText, Trash2 } from 'lucide-react';
+import { Upload, X, Send, FileText, Trash2 } from 'lucide-react';
 import { API, apiPost, apiGet, apiDelete, apiPostFormData } from '../api/config';
 
 interface Message {
